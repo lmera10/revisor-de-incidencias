@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 from datetime import datetime, time, timedelta
+import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
@@ -69,6 +70,40 @@ def to_int(value: Any) -> Optional[int]:
         return int(str(value).strip())
     except Exception:
         return None
+
+
+def parse_motivo_code(value: Any) -> Tuple[Optional[int], Optional[int]]:
+    if is_empty(value):
+        return None, None
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return value.month, value.day
+    if isinstance(value, (int, float)) and not pd.isna(value):
+        try:
+            if isinstance(value, float) and not value.is_integer():
+                text_value = str(value).strip()
+                match = re.match(r"^(\d+)[\.,](\d+)$", text_value)
+                if match:
+                    return int(match.group(1)), int(match.group(2))
+            int_value = int(value)
+            text_value = str(int_value)
+            if len(text_value) >= 2:
+                return int(text_value[0]), int(text_value[1:])
+            return None, int_value
+        except Exception:
+            return None, None
+    text = str(value).strip()
+    numbers = [int(n) for n in re.findall(r"\d+", text)]
+    if len(numbers) >= 3 and numbers[0] >= 1900:
+        return numbers[-2], numbers[-1]
+    match = re.search(r"(\d+)\s*[|/\-]\s*(\d+)", text)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    if len(numbers) >= 2:
+        return numbers[0], numbers[1]
+    try:
+        return None, int(text)
+    except Exception:
+        return None, None
 
 
 def to_float(value: Any) -> Optional[float]:
@@ -199,21 +234,26 @@ def rule_in6(row: pd.Series) -> List[Tuple[str, str]]:
 
 def rule_in7(row: pd.Series) -> List[Tuple[str, str]]:
     issues: List[Tuple[str, str]] = []
-    
-    motivo = to_int(row.get("Motivo"))
-    hora_cambio = row.get("Hora cambio")
-    unidad_saliente = row.get("Unidad saliente")
-    
-    # Campos obligatorios: todos excepto Unidad saliente
-    required = [c for c in ALL_COLUMNS if c not in {"Unidad saliente"}]
+
+    motivo_main, motivo_sub = parse_motivo_code(row.get("Motivo"))
+    is_8_29 = motivo_main == 8 and motivo_sub == 29
+    is_8_35 = motivo_main == 8 and motivo_sub == 35
+
+    # Campos obligatorios: todos excepto Unidad saliente.
+    # Para motivo 8|35, Hora cambio tampoco es obligatoria (debe ir vacia).
+    required_exclusions = {"Unidad saliente"}
+    if is_8_35:
+        required_exclusions.add("Hora cambio")
+    required = [c for c in ALL_COLUMNS if c not in required_exclusions]
     issues.extend(check_required(row, required, "IN7"))
-    
-    # Determinar si es motivo de cambio (8-29)
-    is_cambio_motivo = motivo is not None and 8 <= motivo <= 29
-    
-    # Unidad saliente nunca debe tener datos en IN7
-    if not is_empty(unidad_saliente):
-        issues.append(("Unidad saliente", "IN7: No debe haber dato aqui"))
+
+    # Reglas segun motivo
+    if is_8_35:
+        issues.extend(check_must_be_empty(row, ["Unidad saliente", "Hora cambio"], "IN7"))
+    elif is_8_29:
+        issues.extend(check_must_be_empty(row, ["Unidad saliente"], "IN7"))
+        if to_time(row.get("Hora cambio")) is None:
+            issues.append(("Hora cambio", "IN7: Hora cambio obligatorio para motivo 8-29"))
     return issues
 
 

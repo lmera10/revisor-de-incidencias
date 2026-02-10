@@ -12,3 +12,6 @@ Example:
 python -m pip install -r requirements.txt
 python -m app.main
 ```
+
+## Notas
+- Regla IN7 actualizada para Motivo 8|29 y 8|35 (validacion de Unidad saliente y Hora cambio).

@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+
+# Build artifacts
+build/
+dist/
+
+# OS/editor
+.DS_Store
+Thumbs.db

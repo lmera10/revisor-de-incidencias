@@ -88,10 +88,70 @@ def validate_dataframe(
             continue
 
         # -------------------------
-        # Regla de ciclos (si aplica)
+        # Regla de ciclos (promedios, si aplica)
         # -------------------------
         if cycle_averages:
             issues.extend(rules.rule_cycle(row, cycle_averages))
+
+        # -------------------------
+        # Si no hay errores, no se muestra la fila
+        # -------------------------
+        if not issues:
+            continue
+
+        excel_row = idx + 2  # encabezado + índice base 0
+
+        row_values = {
+            col: "" if rules.is_empty(row.get(col)) else str(row.get(col))
+            for col in rules.ALL_COLUMNS
+        }
+
+        # -------------------------
+        # Construcción del detalle de errores
+        # -------------------------
+        problem_details: List[str] = []
+
+        for field, message in issues:
+            # Solo mostrar el nombre de la columna
+            if field not in problem_details:
+                problem_details.append(field)
+
+        results.append(
+            ValidationResult(
+                row_number=excel_row,
+                row_values=row_values,
+                problem_details=problem_details,
+            )
+        )
+
+    return results
+
+
+def validate_cycles_dataframe(
+    df: pd.DataFrame,
+    cycle_averages: Optional[Dict[str, float]] = None
+) -> List[ValidationResult]:
+
+    # Validación de columnas obligatorias
+    missing = [c for c in rules.ALL_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(f"Faltan columnas en el Excel: {', '.join(missing)}")
+
+    results: List[ValidationResult] = []
+    for idx, row in df.iterrows():
+        issues = []
+
+        # -------------------------
+        # Regla especial: Servicio == 0 → ignorar
+        # -------------------------
+        servicio_zero = rules.to_int(row.get("Servicio")) == 0
+        if servicio_zero:
+            continue
+
+        # -------------------------
+        # Reglas de ciclos por ruta
+        # -------------------------
+        issues.extend(rules.rule_cycle_route_limits(row))
 
         # -------------------------
         # Si no hay errores, no se muestra la fila

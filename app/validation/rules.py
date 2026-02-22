@@ -115,6 +115,29 @@ def to_float(value: Any) -> Optional[float]:
         return None
 
 
+def normalize_incidence(value: Any) -> str:
+    if is_empty(value):
+        return ""
+    incidence = str(value).strip().upper()
+    if len(incidence) >= 3:
+        incidence = incidence[:3]
+    return incidence
+
+
+def to_minutes(value: Any) -> Optional[float]:
+    """Convierte un valor de ciclo a minutos."""
+    t_value = to_time(value)
+    if t_value is not None:
+        return t_value.hour * 60 + t_value.minute + (t_value.second / 60)
+    num = to_float(value)
+    if num is None:
+        return None
+    if 0 <= num < 1:
+        # Fracción de día (Excel) -> minutos
+        return num * 24 * 60
+    return num
+
+
 def check_required(row: pd.Series, required_fields: Iterable[str], rule: str) -> List[Tuple[str, str]]:
     issues: List[Tuple[str, str]] = []
     for field in required_fields:
@@ -265,6 +288,62 @@ def rule_no_incidence(row: pd.Series) -> List[Tuple[str, str]]:
         issues.append(("Salida real", "SP/SR: Salida programada y real deben existir y ser validas"))
     elif t_prog != t_real:
         issues.append(("Salida real", "SP/SR: Salida programada debe ser igual a Salida real"))
+    return issues
+
+
+def normalize_recorrido(value: Any) -> Optional[str]:
+    if is_empty(value):
+        return None
+    text = str(value).strip().casefold()
+    if not text:
+        return None
+    # Unificar tipos de guiones a "-"
+    text = text.replace("–", "-").replace("—", "-")
+    # Compactar espacios
+    text = re.sub(r"\s+", " ", text)
+    # Quitar espacios alrededor de guion
+    text = re.sub(r"\s*-\s*", "-", text)
+    return text
+
+
+ROUTE_CYCLE_LIMITS = {
+    # Limites de ciclo por ruta (HH:MM)
+    "terminal guasmo-s1": time(1, 50),
+    "t1-playita": time(0, 30),
+    "t1-pradera-cartonera": time(1, 20),
+    "t2-plaza dañin": time(0, 30),
+    "t2-esteros-fertisa": time(0, 30),
+    "t2-samanes-ps": time(1, 0),
+    "t2-guayacanes": time(0, 40),
+    "t2-trd-playita": time(2, 20),
+}
+
+
+def rule_cycle_route_limits(row: pd.Series) -> List[Tuple[str, str]]:
+    issues: List[Tuple[str, str]] = []
+    if normalize_incidence(row.get("Incidencia")) == "IN6":
+        return issues
+    recorrido = normalize_recorrido(row.get("Recorrido"))
+    if not recorrido:
+        return issues
+
+    limit = ROUTE_CYCLE_LIMITS.get(recorrido)
+    if limit is None:
+        # Fallback: coincide por substring (ej: "terminal guasmo-terminal guasmo-s1")
+        matches = [key for key in ROUTE_CYCLE_LIMITS if key in recorrido]
+        if not matches:
+            return issues
+        best_key = max(matches, key=len)
+        limit = ROUTE_CYCLE_LIMITS[best_key]
+
+    ciclo_minutes = to_minutes(row.get("Ciclo"))
+    if ciclo_minutes is None:
+        issues.append(("Ciclo", f"Ciclo obligatorio para {recorrido}"))
+        return issues
+
+    limit_minutes = limit.hour * 60 + limit.minute + (limit.second / 60)
+    if ciclo_minutes > limit_minutes:
+        issues.append(("Ciclo", f"Ciclo supera limite {limit.strftime('%H:%M')} para {recorrido}"))
     return issues
 
 

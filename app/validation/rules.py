@@ -7,8 +7,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import pandas as pd
 
 ALL_COLUMNS = [
-    "Recorrido",
-    "Servicio",
+    "Trayecto",
+    "Puesto",
     "Unidad",
     "Salida programada",
     "Salida real",
@@ -240,7 +240,7 @@ def rule_in5(row: pd.Series) -> List[Tuple[str, str]]:
 
 def rule_in6(row: pd.Series) -> List[Tuple[str, str]]:
     issues: List[Tuple[str, str]] = []
-    allowed = {"Recorrido", "Servicio", "Salida programada", "Incidencia", "Motivo", "Observaciones"}
+    allowed = {"Trayecto", "Puesto", "Salida programada", "Incidencia", "Motivo", "Observaciones"}
     
     for field in ALL_COLUMNS:
         if field in allowed:
@@ -249,7 +249,7 @@ def rule_in6(row: pd.Series) -> List[Tuple[str, str]]:
         if not is_empty(value):
             issues.append((
                 field,
-                "IN6: Solo se permiten datos en Recorrido, Servicio, Salida programada, Incidencia, Motivo y Observaciones",
+                "IN6: Solo se permiten datos en Trayecto, Puesto, Salida programada, Incidencia, Motivo y Observaciones",
             ))
     
     return issues
@@ -291,6 +291,21 @@ def rule_no_incidence(row: pd.Series) -> List[Tuple[str, str]]:
     return issues
 
 
+def rule_motivo_robo_consola(row: pd.Series) -> List[Tuple[str, str]]:
+    """Marca como error el motivo 8|65 (Robo de consola) en cualquier ruta."""
+    issues: List[Tuple[str, str]] = []
+    motivo_raw = row.get("Motivo")
+    if is_empty(motivo_raw):
+        return issues
+
+    motivo_main, motivo_sub = parse_motivo_code(motivo_raw)
+    motivo_text = str(motivo_raw).casefold()
+
+    if (motivo_main == 8 and motivo_sub == 65) or ("robo de consola" in motivo_text):
+        issues.append(("Motivo", "Motivo 8|65 (Robo de consola) no permitido"))
+    return issues
+
+
 def normalize_recorrido(value: Any) -> Optional[str]:
     if is_empty(value):
         return None
@@ -311,11 +326,27 @@ ROUTE_CYCLE_LIMITS = {
     "terminal guasmo-s1": time(1, 50),
     "t1-playita": time(0, 30),
     "t1-pradera-cartonera": time(1, 20),
+    "r401-mercado_trinitaria-batallon": time(0, 45),
+    "r402-trinipuerto--batallon": time(0, 45),
+    "r405(a)-la 25(a)": time(0, 50),
+    "r405(b)-la 25(b)": time(0, 45),
+    "r410(a)-4 de noviembre(a)": time(2, 0),
+    "r410(b)-4 de noviembre(b)": time(0, 30),
+    "t400-suburbio--centro urbano": time(2, 15),
     "t2-plaza dañin": time(0, 30),
     "t2-esteros-fertisa": time(0, 30),
     "t2-samanes-ps": time(1, 0),
     "t2-guayacanes": time(0, 40),
     "t2-trd-playita": time(2, 20),
+    "t3-cal-circuito san francisco": time(0, 35),
+    "t3-r1 pascuales-t. bastion": time(0, 52),
+    "t3-r10 mapasingues este": time(0, 25),
+    "t3-r13 mucholote guamote": time(0, 35),
+    "t3-r2 iguanas": time(0, 50),
+    "t3-r4 juan montalvo": time(0, 30),
+    "t3-r5 florida-rotonda": time(1, 5),
+    "t3-r8 via a la costa_t4": time(1, 5),
+    "terminal bastión popular-s1": time(1, 50),
 }
 
 
@@ -323,7 +354,7 @@ def rule_cycle_route_limits(row: pd.Series) -> List[Tuple[str, str]]:
     issues: List[Tuple[str, str]] = []
     if normalize_incidence(row.get("Incidencia")) == "IN6":
         return issues
-    recorrido = normalize_recorrido(row.get("Recorrido"))
+    recorrido = normalize_recorrido(row.get("Trayecto"))
     if not recorrido:
         return issues
 
@@ -349,7 +380,7 @@ def rule_cycle_route_limits(row: pd.Series) -> List[Tuple[str, str]]:
 
 def rule_cycle(row: pd.Series, cycle_averages: Dict[str, float]) -> List[Tuple[str, str]]:
     issues: List[Tuple[str, str]] = []
-    recorrido_raw = row.get("Recorrido")
+    recorrido_raw = row.get("Trayecto")
     if is_empty(recorrido_raw):
         return issues
     recorrido = str(recorrido_raw).strip()
@@ -363,9 +394,20 @@ def rule_cycle(row: pd.Series, cycle_averages: Dict[str, float]) -> List[Tuple[s
     if promedio is None:
         return issues
     if ciclo is None:
-        issues.append(("Ciclo", f"Ciclo invalido; promedio permitido {promedio} para Recorrido {recorrido}"))
+        issues.append(("Ciclo", f"Ciclo invalido; promedio permitido {promedio} para Trayecto {recorrido}"))
     elif ciclo > promedio:
-        issues.append(("Ciclo", f"Ciclo {ciclo} supera promedio permitido {promedio} para Recorrido {recorrido}"))
+        issues.append(("Ciclo", f"Ciclo {ciclo} supera promedio permitido {promedio} para Trayecto {recorrido}"))
+    return issues
+
+
+def rule_min_cycle(row: pd.Series, min_minutes: float = 5.0) -> List[Tuple[str, str]]:
+    """Valida que el ciclo no sea menor a un minimo en minutos."""
+    issues: List[Tuple[str, str]] = []
+    ciclo_minutes = to_minutes(row.get("Ciclo"))
+    if ciclo_minutes is None:
+        return issues
+    if ciclo_minutes < min_minutes:
+        issues.append(("Ciclo", f"Ciclo menor a {min_minutes:0.0f} minutos"))
     return issues
 
 
@@ -410,7 +452,7 @@ def check_invalid_characters(row: pd.Series) -> List[Tuple[str, str]]:
     issues: List[Tuple[str, str]] = []
     
     # Campos que solo deberían contener números y caracteres básicos
-    numeric_fields = {"Unidad", "Servicio", "Código", "Recorrido"}
+    numeric_fields = {"Unidad", "Puesto", "Código", "Trayecto"}
     for field in numeric_fields:
         value = row.get(field)
         if is_empty(value):
@@ -429,7 +471,7 @@ def check_numeric_fields_validity(row: pd.Series) -> List[Tuple[str, str]]:
     issues: List[Tuple[str, str]] = []
     
     numeric_checks = {
-        "Servicio": (1, 999),
+        "Puesto": (1, 999),
         "Unidad": (1, 99999),
         "Código": (1, 999),
     }

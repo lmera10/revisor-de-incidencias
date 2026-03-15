@@ -57,7 +57,7 @@ def validate_dataframe(
 
     # Campos obligatorios básicos (siempre deben estar presentes)
     basic_required_fields = [
-        "Recorrido", "Servicio", "Salida programada", "Salida real", 
+        "Trayecto", "Puesto", "Salida programada", "Salida real", 
         "Unidad", "Incidencia", "Conductor"
     ]
 
@@ -81,17 +81,22 @@ def validate_dataframe(
             issues.extend(rules.rule_no_incidence(row))
 
         # -------------------------
-        # Regla especial: Servicio == 0 → ignorar si NO es IN7
+        # Regla global: motivo 8|65 (Robo de consola)
         # -------------------------
-        servicio_zero = rules.to_int(row.get("Servicio")) == 0
-        if servicio_zero and incidence != "IN7":
-            continue
+        issues.extend(rules.rule_motivo_robo_consola(row))
+
+        # Nota: Ya no se ignoran incidencias cuando Puesto == 0.
 
         # -------------------------
         # Regla de ciclos (promedios, si aplica)
         # -------------------------
         if cycle_averages:
             issues.extend(rules.rule_cycle(row, cycle_averages))
+
+        # -------------------------
+        # Regla global: ciclo minimo
+        # -------------------------
+        issues.extend(rules.rule_min_cycle(row))
 
         # -------------------------
         # Si no hay errores, no se muestra la fila
@@ -141,17 +146,22 @@ def validate_cycles_dataframe(
     for idx, row in df.iterrows():
         issues = []
 
-        # -------------------------
-        # Regla especial: Servicio == 0 → ignorar
-        # -------------------------
-        servicio_zero = rules.to_int(row.get("Servicio")) == 0
-        if servicio_zero:
-            continue
+        # Nota: Ya no se ignoran filas cuando Puesto == 0.
 
         # -------------------------
         # Reglas de ciclos por ruta
         # -------------------------
         issues.extend(rules.rule_cycle_route_limits(row))
+
+        # -------------------------
+        # Regla global: motivo 8|65 (Robo de consola)
+        # -------------------------
+        issues.extend(rules.rule_motivo_robo_consola(row))
+
+        # -------------------------
+        # Regla global: ciclo minimo
+        # -------------------------
+        issues.extend(rules.rule_min_cycle(row))
 
         # -------------------------
         # Si no hay errores, no se muestra la fila
